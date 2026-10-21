@@ -1,0 +1,1819 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shatranj al-Kabir | Gran Ajedrez de Tamerlán (12×10)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PeerJS para sincronización en tiempo real opcional entre amigos en GitHub Pages -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #161512;
+            --bg-panel: #262421;
+            --bg-panel-alt: #1e1c1a;
+            --text-main: #bababa;
+            --text-bright: #ffffff;
+            --accent: #629924;
+            --accent-hover: #73b12b;
+            /* Tema Verde Clásico (como la imagen de referencia) */
+            --board-light: #f0f4f0;
+            --board-dark: #2e7d32;
+            --board-selected: rgba(255, 215, 0, 0.55);
+            --board-last-move: rgba(155, 199, 0, 0.45);
+            --board-check: radial-gradient(circle, rgba(220,38,38,0.85) 0%, rgba(220,38,38,0) 75%);
+        }
+
+        [data-theme="lichess-brown"] {
+            --board-light: #f0d9b5;
+            --board-dark: #b58863;
+        }
+
+        [data-theme="lichess-blue"] {
+            --board-light: #dee3e6;
+            --board-dark: #8ca2ad;
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
+
+        .font-mono-clock {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* Tablero 12 columnas x 10 filas */
+        .board-grid {
+            display: grid;
+            grid-template-columns: repeat(12, minmax(0, 1fr));
+            grid-template-rows: repeat(10, minmax(0, 1fr));
+            aspect-ratio: 12 / 10;
+            width: 100%;
+            max-width: 840px;
+            user-select: none;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.65);
+            border: 3px solid #2e2b27;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .square {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.1s ease;
+        }
+
+        .square.light {
+            background-color: var(--board-light);
+        }
+
+        .square.dark {
+            background-color: var(--board-dark);
+        }
+
+        .square.selected::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-color: var(--board-selected);
+            pointer-events: none;
+        }
+
+        .square.last-move::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-color: var(--board-last-move);
+            pointer-events: none;
+        }
+
+        .square.in-check {
+            background-image: var(--board-check) !important;
+        }
+
+        /* Indicadores de movimiento legal estilo Lichess */
+        .legal-dot {
+            width: 28%;
+            height: 28%;
+            background-color: rgba(20, 85, 30, 0.55);
+            border-radius: 9999px;
+            pointer-events: none;
+            z-index: 10;
+            transition: transform 0.12s ease;
+        }
+
+        .square:hover .legal-dot {
+            transform: scale(1.25);
+            background-color: rgba(20, 85, 30, 0.8);
+        }
+
+        .legal-capture {
+            position: absolute;
+            inset: 0;
+            border: 4px solid rgba(20, 85, 30, 0.65);
+            border-radius: 6px;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .square:hover .legal-capture {
+            background-color: rgba(220, 38, 38, 0.25);
+            border-color: rgba(220, 38, 38, 0.8);
+        }
+
+        .piece-svg {
+            width: 84%;
+            height: 84%;
+            z-index: 5;
+            filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.35));
+            transition: transform 0.12s cubic-bezier(0.2, 0.8, 0.2, 1);
+            pointer-events: none;
+        }
+
+        .square:hover .piece-svg {
+            transform: scale(1.06);
+        }
+
+        /* Scrollbar personalizada */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e1c1a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #3d3934;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #524d46;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Barra Superior Estilo Lichess -->
+    <header class="bg-[#1e1c1a] border-b border-[#322f2b] px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-30">
+        <div class="flex items-center gap-4">
+            <a href="#" onclick="resetNewGameModal(); return false;" class="flex items-center gap-2.5 group">
+                <div class="w-8 h-8 rounded bg-[#629924] flex items-center justify-center text-white font-bold text-lg shadow">
+                    ♔
+                </div>
+                <div>
+                    <span class="text-white font-bold tracking-tight text-lg group-hover:text-[#73b12b] transition">tamerlane<span class="font-light text-[#8c8881]">.org</span></span>
+                    <span class="hidden sm:inline-block ml-2 text-[11px] uppercase tracking-wider bg-[#322f2b] text-[#bababa] px-2 py-0.5 rounded font-semibold">12×10 Gran Ajedrez</span>
+                </div>
+            </a>
+
+            <nav class="hidden md:flex items-center gap-1 text-sm font-medium ml-4">
+                <button onclick="openModal('newGameModal')" class="px-3 py-1.5 rounded hover:bg-[#2c2926] text-[#bababa] hover:text-white transition">Nueva Partida</button>
+                <button onclick="openModal('guideModal')" class="px-3 py-1.5 rounded hover:bg-[#2c2926] text-[#bababa] hover:text-white transition flex items-center gap-1.5">
+                    <span>Guía de Piezas (14)</span>
+                </button>
+                <button onclick="openModal('inviteModal')" class="px-3 py-1.5 rounded hover:bg-[#2c2926] text-[#73b12b] hover:text-white transition font-semibold flex items-center gap-1.5">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+                    Invitar Amigo
+                </button>
+            </nav>
+        </div>
+
+        <!-- Controles Rápidos Derecha -->
+        <div class="flex items-center gap-2">
+            <!-- Estado de Conexión / Correspondencia -->
+            <div id="syncStatusBadge" class="flex items-center gap-1.5 text-xs bg-[#262421] border border-[#3a3632] px-2.5 py-1.5 rounded text-[#bababa]">
+                <span id="syncDot" class="w-2 h-2 rounded-full bg-amber-400"></span>
+                <span id="syncText">Correspondencia (14d)</span>
+            </div>
+
+            <!-- Selector de Tema del Tablero -->
+            <select id="boardThemeSelect" onchange="changeBoardTheme(this.value)" class="bg-[#262421] border border-[#3a3632] text-xs text-white rounded px-2.5 py-1.5 focus:outline-none focus:border-[#629924]">
+                <option value="classic-green">Tablero Verde (Imagen)</option>
+                <option value="lichess-brown">Madera Lichess</option>
+                <option value="lichess-blue">Azul Hielo</option>
+            </select>
+
+            <button onclick="openModal('guideModal')" class="md:hidden bg-[#262421] border border-[#3a3632] text-xs text-white px-2.5 py-1.5 rounded">
+                Reglas
+            </button>
+        </div>
+    </header>
+
+    <!-- Contenedor Principal (Layout 3 Columnas estilo Lichess) -->
+    <main class="flex-1 max-w-[1460px] w-full mx-auto px-2 sm:px-4 py-4 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+
+        <!-- COLUMNA IZQUIERDA: Info de Partida + Inspector de Pieza Seleccionada -->
+        <aside class="lg:col-span-3 flex flex-col gap-3 order-2 lg:order-1">
+            <!-- Tarjeta de Información de la Partida -->
+            <div class="bg-[#262421] rounded border border-[#322f2b] p-3.5 shadow">
+                <div class="flex items-center justify-between border-b border-[#322f2b] pb-2.5 mb-2.5">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xl">🐢</span>
+                        <div>
+                            <h2 class="text-sm font-bold text-white leading-tight">Shatranj al-Kabir (1300s)</h2>
+                            <p id="gameModeLabel" class="text-xs text-[#8c8881]">Correspondencia • 14 días / jugada</p>
+                        </div>
+                    </div>
+                    <span id="turnBadge" class="text-xs font-bold px-2 py-0.5 rounded bg-white text-black">Turno: Blancas</span>
+                </div>
+
+                <div class="text-xs space-y-1.5 text-[#9e9a93]">
+                    <div class="flex justify-between">
+                        <span>Tablero:</span>
+                        <span class="text-white font-medium">12×10 (120 casillas)</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>Piezas iniciales:</span>
+                        <span class="text-white font-medium">36 por bando (72 total)</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span>Plazo por jugada:</span>
+                        <span id="timeControlSummary" class="text-[#73b12b] font-semibold">14 días</span>
+                    </div>
+                </div>
+
+                <!-- Botón Principal de Compartir Jugada por Link -->
+                <div class="mt-3 pt-3 border-t border-[#322f2b] flex flex-col gap-2">
+                    <button onclick="copyTurnLink()" class="w-full py-2 px-3 rounded bg-[#629924] hover:bg-[#73b12b] text-white font-semibold text-xs flex items-center justify-center gap-2 shadow transition">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
+                        <span>Copiar Link con mi Jugada</span>
+                    </button>
+                    <button onclick="openModal('inviteModal')" class="w-full py-1.5 px-3 rounded bg-[#322f2b] hover:bg-[#3d3934] text-[#bababa] hover:text-white text-xs font-medium transition">
+                        Sala en Vivo P2P / Opciones de Link
+                    </button>
+                </div>
+            </div>
+
+            <!-- Inspector Interactivo de Pieza (Muestra cómo mueve la pieza seleccionada o bajo el cursor) -->
+            <div class="bg-[#262421] rounded border border-[#322f2b] p-3.5 shadow">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-[11px] uppercase tracking-wider font-bold text-[#8c8881]">Inspector de Pieza</span>
+                    <button onclick="openModal('guideModal')" class="text-xs text-[#73b12b] hover:underline">Ver las 14 piezas →</button>
+                </div>
+                <div id="pieceInspector" class="flex items-start gap-3 bg-[#1e1c1a] p-3 rounded border border-[#322f2b]">
+                    <div id="inspectorIcon" class="w-12 h-12 rounded bg-[#262421] flex items-center justify-center shrink-0 p-1.5 border border-[#3a3632]">
+                        <!-- SVG dinámico -->
+                    </div>
+                    <div class="min-w-0">
+                        <h3 id="inspectorTitle" class="text-sm font-bold text-white">Selecciona una pieza</h3>
+                        <p id="inspectorSubtitle" class="text-[11px] text-[#73b12b] font-medium mb-1">Haz clic en cualquier casilla</p>
+                        <p id="inspectorDesc" class="text-xs text-[#bababa] leading-relaxed">
+                            Al tocar una pieza en el tablero verás aquí su nombre histórico y cómo se mueve o salta.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Leyenda Rápida de Piezas Especiales -->
+            <div class="bg-[#262421] rounded border border-[#322f2b] p-3.5 shadow">
+                <h3 class="text-[11px] uppercase tracking-wider font-bold text-[#8c8881] mb-2.5">Resumen de Piezas de Tamerlán</h3>
+                <div id="quickPieceList" class="grid grid-cols-2 gap-1.5 text-xs">
+                    <!-- Rellenado dinámicamente -->
+                </div>
+            </div>
+        </aside>
+
+        <!-- COLUMNA CENTRAL: Tablero 12x10 con Coordenadas -->
+        <section class="lg:col-span-6 flex flex-col items-center justify-center order-1 lg:order-2">
+            
+            <!-- Barra Jugador Superior (Móvil) -->
+            <div class="w-full max-w-[840px] flex lg:hidden items-center justify-between bg-[#262421] px-3 py-2 rounded-t border border-b-0 border-[#322f2b]">
+                <div class="flex items-center gap-2">
+                    <span id="mobileTopColorDot" class="w-3 h-3 rounded-full bg-black border border-gray-500"></span>
+                    <span id="mobileTopName" class="text-sm font-semibold text-white">Negras</span>
+                </div>
+                <span id="mobileTopClock" class="font-mono-clock text-xs bg-[#1e1c1a] px-2 py-1 rounded text-white font-bold">14d 00h 00m</span>
+            </div>
+
+            <!-- Marco del Tablero con Coordenadas a-l y 1-10 -->
+            <div class="w-full max-w-[840px] bg-[#1e1c1a] p-2 sm:p-3 rounded border border-[#322f2b] shadow-2xl">
+                
+                <!-- Coordenadas Superiores (a - l) -->
+                <div id="topFilesCoord" class="grid grid-cols-12 text-center text-[10px] sm:text-xs font-semibold text-[#8c8881] pb-1 pl-5 pr-5 select-none">
+                    <!-- a..l -->
+                </div>
+
+                <div class="flex items-stretch">
+                    <!-- Coordenadas Izquierda (10 - 1) -->
+                    <div id="leftRanksCoord" class="flex flex-col justify-around text-[10px] sm:text-xs font-semibold text-[#8c8881] pr-1.5 sm:pr-2 select-none text-right w-5 sm:w-6">
+                        <!-- 10..1 -->
+                    </div>
+
+                    <!-- El Tablero 12x10 -->
+                    <div id="chessboard" class="board-grid"></div>
+
+                    <!-- Coordenadas Derecha (10 - 1) -->
+                    <div id="rightRanksCoord" class="flex flex-col justify-around text-[10px] sm:text-xs font-semibold text-[#8c8881] pl-1.5 sm:pl-2 select-none text-left w-5 sm:w-6">
+                        <!-- 10..1 -->
+                    </div>
+                </div>
+
+                <!-- Coordenadas Inferiores (a - l) -->
+                <div id="bottomFilesCoord" class="grid grid-cols-12 text-center text-[10px] sm:text-xs font-semibold text-[#8c8881] pt-1 pl-5 pr-5 select-none">
+                    <!-- a..l -->
+                </div>
+            </div>
+
+            <!-- Barra Jugador Inferior (Móvil) -->
+            <div class="w-full max-w-[840px] flex lg:hidden items-center justify-between bg-[#262421] px-3 py-2 rounded-b border border-t-0 border-[#322f2b]">
+                <div class="flex items-center gap-2">
+                    <span id="mobileBottomColorDot" class="w-3 h-3 rounded-full bg-white border border-gray-400"></span>
+                    <span id="mobileBottomName" class="text-sm font-semibold text-white">Blancas</span>
+                </div>
+                <span id="mobileBottomClock" class="font-mono-clock text-xs bg-[#629924]/20 text-[#73b12b] px-2 py-1 rounded font-bold">14d 00h 00m</span>
+            </div>
+        </section>
+
+        <!-- COLUMNA DERECHA: Relojes de Correspondencia (14 días), Historial y Controles -->
+        <aside class="lg:col-span-3 flex flex-col gap-2.5 order-3 w-full">
+
+            <!-- Reloj / Info Jugador Superior -->
+            <div id="topPlayerCard" class="bg-[#262421] rounded border border-[#322f2b] p-3 transition">
+                <div class="flex items-center justify-between mb-1.5">
+                    <div class="flex items-center gap-2">
+                        <span id="topPlayerColorIndicator" class="w-3.5 h-3.5 rounded-sm bg-black border border-gray-500 shadow"></span>
+                        <span id="topPlayerName" class="text-sm font-bold text-white">Jugador Negras</span>
+                    </div>
+                    <span id="topPlayerStatus" class="text-[11px] text-[#8c8881]">Esperando turno</span>
+                </div>
+                <!-- Reloj de 14 días -->
+                <div id="topClockBox" class="bg-[#1a1816] border border-[#322f2b] rounded px-3 py-2 flex items-center justify-between">
+                    <span class="text-[11px] uppercase tracking-wider text-[#8c8881]">Plazo restante</span>
+                    <span id="topClockDisplay" class="font-mono-clock text-base sm:text-lg font-bold text-[#bababa]">14d 00h 00m 00s</span>
+                </div>
+                <!-- Piezas capturadas por el jugador superior -->
+                <div id="topCaptured" class="mt-2 min-h-[22px] flex flex-wrap gap-0.5 items-center"></div>
+            </div>
+
+            <!-- Panel Central de Movimientos y Botones de Acción (Estilo Lichess) -->
+            <div class="bg-[#262421] rounded border border-[#322f2b] flex flex-col h-[310px] shadow">
+                <!-- Cabecera de Historial -->
+                <div class="px-3 py-2 bg-[#1e1c1a] border-b border-[#322f2b] flex items-center justify-between text-xs">
+                    <span class="font-semibold text-white">Notación Algebraica (a-l, 1-10)</span>
+                    <span id="moveCounterBadge" class="text-[#8c8881]">Jugada 1</span>
+                </div>
+
+                <!-- Lista de Jugadas -->
+                <div id="moveHistoryContainer" class="flex-1 overflow-y-auto divide-y divide-[#2e2b27] text-xs font-mono-clock">
+                    <div class="p-4 text-center text-[#8c8881] font-sans">
+                        La partida está lista. Mueve cualquier pieza blanca para iniciar el reloj de 14 días.
+                    </div>
+                </div>
+
+                <!-- Barra de Botones estilo Lichess -->
+                <div class="p-2 bg-[#1e1c1a] border-t border-[#322f2b] grid grid-cols-5 gap-1">
+                    <button onclick="flipBoard()" title="Girar tablero" class="p-2 rounded bg-[#262421] hover:bg-[#322f2b] text-[#bababa] hover:text-white flex flex-col items-center justify-center gap-0.5 transition">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/></svg>
+                        <span class="text-[10px]">Girar</span>
+                    </button>
+                    <button onclick="undoLastMove()" title="Deshacer última jugada" class="p-2 rounded bg-[#262421] hover:bg-[#322f2b] text-[#bababa] hover:text-white flex flex-col items-center justify-center gap-0.5 transition">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"/></svg>
+                        <span class="text-[10px]">Deshacer</span>
+                    </button>
+                    <button onclick="toggleSound()" id="soundToggleBtn" title="Efectos de sonido" class="p-2 rounded bg-[#262421] hover:bg-[#322f2b] text-[#73b12b] hover:text-white flex flex-col items-center justify-center gap-0.5 transition">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z"/></svg>
+                        <span class="text-[10px]">Sonido</span>
+                    </button>
+                    <button onclick="declareDraw()" title="Acordar tablas" class="p-2 rounded bg-[#262421] hover:bg-[#322f2b] text-[#bababa] hover:text-white flex flex-col items-center justify-center gap-0.5 transition">
+                        <span class="text-xs font-bold leading-none">½</span>
+                        <span class="text-[10px]">Tablas</span>
+                    </button>
+                    <button onclick="resignGame()" title="Rendirse" class="p-2 rounded bg-[#262421] hover:bg-red-950/60 text-red-400 hover:text-red-300 flex flex-col items-center justify-center gap-0.5 transition">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"/></svg>
+                        <span class="text-[10px]">Rendirse</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Reloj / Info Jugador Inferior -->
+            <div id="bottomPlayerCard" class="bg-[#262421] rounded border-2 border-[#629924] p-3 transition">
+                <div class="flex items-center justify-between mb-1.5">
+                    <div class="flex items-center gap-2">
+                        <span id="bottomPlayerColorIndicator" class="w-3.5 h-3.5 rounded-sm bg-white border border-gray-400 shadow"></span>
+                        <span id="bottomPlayerName" class="text-sm font-bold text-white">Jugador Blancas</span>
+                    </div>
+                    <span id="bottomPlayerStatus" class="text-[11px] text-[#73b12b] font-semibold">Tu turno de mover</span>
+                </div>
+                <!-- Reloj de 14 días -->
+                <div id="bottomClockBox" class="bg-[#629924]/15 border border-[#629924]/50 rounded px-3 py-2 flex items-center justify-between">
+                    <span class="text-[11px] uppercase tracking-wider text-[#9e9a93]">Plazo restante</span>
+                    <span id="bottomClockDisplay" class="font-mono-clock text-base sm:text-lg font-bold text-white">14d 00h 00m 00s</span>
+                </div>
+                <!-- Piezas capturadas por el jugador inferior -->
+                <div id="bottomCaptured" class="mt-2 min-h-[22px] flex flex-wrap gap-0.5 items-center"></div>
+            </div>
+
+        </aside>
+    </main>
+
+    <!-- MODAL 1: INVITAR A UN AMIGO / CORRESPONDENCIA GITHUB PAGES -->
+    <div id="inviteModal" class="fixed inset-0 bg-black/75 z-50 hidden items-center justify-center p-4">
+        <div class="bg-[#262421] border border-[#3a3632] rounded-lg max-w-lg w-full p-5 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-[#322f2b] pb-3 mb-4">
+                <h2 class="text-base font-bold text-white flex items-center gap-2">
+                    <span class="text-[#73b12b]">🔗</span> Invitar Amigo (GitHub Pages)
+                </h2>
+                <button onclick="closeModal('inviteModal')" class="text-[#8c8881] hover:text-white text-xl leading-none">&times;</button>
+            </div>
+
+            <div class="space-y-4 text-xs sm:text-sm">
+                <!-- Opción A: Correspondencia Asíncrona por Enlace (14 días) -->
+                <div class="bg-[#1e1c1a] p-3.5 rounded border border-[#322f2b]">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="font-bold text-white">1. Enlace de Correspondencia (14 días / jugada)</span>
+                        <span class="text-[10px] bg-[#629924]/25 text-[#73b12b] px-2 py-0.5 rounded font-semibold">Sin Servidor</span>
+                    </div>
+                    <p class="text-xs text-[#9e9a93] mb-3">
+                        El estado completo del tablero 12×10, el historial de jugadas y el temporizador de 14 días se guardan directamente en el enlace URL. Haz tu jugada y envíale el link por WhatsApp, Telegram o Discord.
+                    </p>
+                    <div class="flex gap-2">
+                        <input id="correspondenceUrlInput" type="text" readonly class="flex-1 bg-[#161512] border border-[#322f2b] rounded px-2.5 py-2 text-xs text-[#bababa] font-mono-clock focus:outline-none">
+                        <button onclick="copyTurnLink()" class="bg-[#629924] hover:bg-[#73b12b] text-white font-semibold px-3.5 py-2 rounded text-xs shrink-0 transition">
+                            Copiar Link
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Opción B: Sala P2P en Vivo (WebRTC) para cuando ambos están conectados -->
+                <div class="bg-[#1e1c1a] p-3.5 rounded border border-[#322f2b]">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="font-bold text-white">2. Sala en Tiempo Real P2P (Sincronización Automática)</span>
+                        <span id="p2pStatusPill" class="text-[10px] bg-[#322f2b] text-[#bababa] px-2 py-0.5 rounded">Opcional</span>
+                    </div>
+                    <p class="text-xs text-[#9e9a93] mb-3">
+                        Si ambos tienen la página abierta al mismo tiempo, crea una sala directa P2P para que las jugadas aparezcan al instante sin copiar nuevos enlaces:
+                    </p>
+                    <div class="flex flex-wrap gap-2 items-center">
+                        <button onclick="createPeerRoom()" id="createPeerBtn" class="bg-[#322f2b] hover:bg-[#3d3934] text-white font-semibold px-3 py-2 rounded text-xs transition">
+                            Crear Sala en Vivo
+                        </button>
+                        <input id="peerRoomLinkInput" type="text" readonly placeholder="Haz clic en 'Crear Sala en Vivo'..." class="flex-1 bg-[#161512] border border-[#322f2b] rounded px-2.5 py-2 text-xs text-[#bababa] font-mono-clock focus:outline-none">
+                        <button onclick="copyPeerRoomLink()" class="bg-[#322f2b] hover:bg-[#3d3934] text-white px-3 py-2 rounded text-xs transition">
+                            Copiar
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-5 flex justify-end">
+                <button onclick="closeModal('inviteModal')" class="px-4 py-2 rounded bg-[#322f2b] hover:bg-[#3d3934] text-white text-xs font-semibold">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 2: CONFIGURAR NUEVA PARTIDA -->
+    <div id="newGameModal" class="fixed inset-0 bg-black/75 z-50 hidden items-center justify-center p-4">
+        <div class="bg-[#262421] border border-[#3a3632] rounded-lg max-w-md w-full p-5 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-[#322f2b] pb-3 mb-4">
+                <h2 class="text-base font-bold text-white">Configurar Nueva Partida</h2>
+                <button onclick="closeModal('newGameModal')" class="text-[#8c8881] hover:text-white text-xl leading-none">&times;</button>
+            </div>
+
+            <div class="space-y-4 text-xs sm:text-sm">
+                <div>
+                    <label class="block text-xs font-semibold text-[#bababa] mb-1.5">Ritmo de Juego (Correspondencia)</label>
+                    <select id="timeControlSelect" class="w-full bg-[#161512] border border-[#3a3632] rounded px-3 py-2 text-white text-xs focus:outline-none focus:border-[#629924]">
+                        <option value="14" selected>Correspondencia — 14 días por jugada (Estándar)</option>
+                        <option value="7">Correspondencia — 7 días por jugada</option>
+                        <option value="3">Correspondencia — 3 días por jugada</option>
+                        <option value="1">Correspondencia — 1 día por jugada</option>
+                        <option value="0">Sin límite de tiempo (Casual)</option>
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-xs font-semibold text-[#bababa] mb-1">Nombre Blancas</label>
+                        <input id="inputWhiteName" type="text" value="Blancas" class="w-full bg-[#161512] border border-[#3a3632] rounded px-2.5 py-1.5 text-white text-xs">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-[#bababa] mb-1">Nombre Negras</label>
+                        <input id="inputBlackName" type="text" value="Negras" class="w-full bg-[#161512] border border-[#3a3632] rounded px-2.5 py-1.5 text-white text-xs">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-[#bababa] mb-1.5">Regla de la Jirafa</label>
+                    <select id="giraffeRuleSelect" class="w-full bg-[#161512] border border-[#3a3632] rounded px-3 py-2 text-white text-xs focus:outline-none focus:border-[#629924]">
+                        <option value="both" selected>Histórica + Salto L largo (3,2) / (4,1)</option>
+                        <option value="leaper">Solo Salto L largo (3,2) y (4,1)</option>
+                        <option value="tamerlane">Tamerlán estricto (1 diagonal + mínimo 3 rectos)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="mt-5 flex justify-end gap-2">
+                <button onclick="closeModal('newGameModal')" class="px-4 py-2 rounded bg-[#322f2b] hover:bg-[#3d3934] text-[#bababa] text-xs font-semibold">
+                    Cancelar
+                </button>
+                <button onclick="startConfiguredGame()" class="px-4 py-2 rounded bg-[#629924] hover:bg-[#73b12b] text-white text-xs font-semibold shadow">
+                    Crear Partida y Obtener Link
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL 3: GUÍA VISUAL DE LAS 14 PIEZAS DEL GRAN AJEDREZ (12x10) -->
+    <div id="guideModal" class="fixed inset-0 bg-black/75 z-50 hidden items-center justify-center p-4">
+        <div class="bg-[#262421] border border-[#3a3632] rounded-lg max-w-3xl w-full max-h-[88vh] flex flex-col shadow-2xl">
+            <div class="flex items-center justify-between border-b border-[#322f2b] px-5 py-3.5">
+                <div>
+                    <h2 class="text-base font-bold text-white">Guía de Piezas — Gran Ajedrez de Tamerlán (12×10)</h2>
+                    <p class="text-xs text-[#8c8881]">Disposición exacta del diagrama histórico con 3 filas iniciales por jugador</p>
+                </div>
+                <button onclick="closeModal('guideModal')" class="text-[#8c8881] hover:text-white text-xl leading-none">&times;</button>
+            </div>
+
+            <div id="guideModalContent" class="p-5 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <!-- Tarjetas generadas dinámicamente -->
+            </div>
+
+            <div class="border-t border-[#322f2b] px-5 py-3 flex justify-between items-center bg-[#1e1c1a] rounded-b-lg">
+                <span class="text-xs text-[#8c8881]">Coronación: Los peones coronan en la última fila (10 o 1) en la pieza de su columna o en Reina.</span>
+                <button onclick="closeModal('guideModal')" class="px-4 py-1.5 rounded bg-[#629924] text-white text-xs font-semibold">Entendido</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notificación Toast Flotante (Sin usar alert()) -->
+    <div id="toastNotification" class="fixed bottom-4 right-4 z-50 bg-[#629924] text-white px-4 py-2.5 rounded shadow-xl text-xs font-semibold transition-all duration-300 opacity-0 translate-y-4 pointer-events-none">
+        Enlace copiado al portapapeles
+    </div>
+
+    <script>
+        /* =========================================================================
+           1. DEFINICIÓN DE LAS 14 PIEZAS DEL GRAN AJEDREZ DE TAMERLÁN (12x10)
+           ========================================================================= */
+        const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l'];
+        const NUM_COLS = 12;
+        const NUM_ROWS = 10;
+
+        const PIECE_INFO = {
+            K: {
+                code: 'K',
+                name: 'Rey (Shah)',
+                tag: 'Real • Paso de 1 casilla',
+                desc: 'Se mueve 1 casilla en cualquier dirección (horizontal, vertical o diagonal). Si queda amenazado está en Jaque.'
+            },
+            Q: {
+                code: 'Q',
+                name: 'Reina / Dama (Fers Real)',
+                tag: 'Deslizante • 8 direcciones',
+                desc: 'Se desliza cualquier número de casillas libres en línea recta horizontal, vertical o diagonal.'
+            },
+            R: {
+                code: 'R',
+                name: 'Torre (Rukh)',
+                tag: 'Deslizante • Ortogonal',
+                desc: 'Se desliza cualquier número de casillas libres en horizontal o vertical (filas y columnas).'
+            },
+            B: {
+                code: 'B',
+                name: 'Alfil / Obispo',
+                tag: 'Deslizante • Diagonal',
+                desc: 'Se desliza cualquier número de casillas libres por las diagonales.'
+            },
+            N: {
+                code: 'N',
+                name: 'Caballo (Faras)',
+                tag: 'Saltador (2,1)',
+                desc: 'Salta en forma de "L" clásica (2 casillas en una dirección ortogonal y 1 perpendicular). Salta sobre piezas.'
+            },
+            C: {
+                code: 'C',
+                name: 'Camello (Jamal)',
+                tag: 'Saltador largo (3,1)',
+                desc: 'Salta en una "L" alargada de 3×1 casillas. Siempre cae en una casilla del mismo color y salta sobre cualquier pieza.'
+            },
+            E: {
+                code: 'E',
+                name: 'Elefante (Al-Fil)',
+                tag: 'Saltador diagonal (2,2)',
+                desc: 'Ubicado en las esquinas (a1, l1, a10, l10). Salta exactamente 2 casillas en diagonal ignorando piezas intermedias.'
+            },
+            W: {
+                code: 'W',
+                name: 'Máquina de Guerra (Dabbaba)',
+                tag: 'Saltador ortogonal (2,0)',
+                desc: 'Símbolo con cruz en X (d1, i1). Salta exactamente 2 casillas en horizontal o vertical sobre cualquier pieza.'
+            },
+            S: {
+                code: 'S',
+                name: 'Torre de Asedio (Catapulta)',
+                tag: 'Deslizante (1-4) + Salto (2,2)',
+                desc: 'Símbolo de carro almenado (e1, h1). Se mueve como Torre hasta 4 casillas o salta 2 casillas en diagonal.'
+            },
+            V: {
+                code: 'V',
+                name: 'Visir / Campeón (Wazir)',
+                tag: 'Táctico • Ortogonal 1-2 + Diagonal 1',
+                desc: 'Escudo real en f1/g10. Se mueve 1 casilla en cualquier dirección o salta 2 casillas en horizontal/vertical.'
+            },
+            F: {
+                code: 'F',
+                name: 'General / Consejero (Ferz)',
+                tag: 'Táctico • Diagonal 1-2 + Ortogonal 1',
+                desc: 'Escudo real en g1/f10. Se mueve 1 casilla en cualquier dirección o salta 2 casillas en diagonal.'
+            },
+            D: {
+                code: 'D',
+                name: 'Guardia / Centinela (Tali\'a)',
+                tag: 'Escolta (d2, i2)',
+                desc: 'Círculo con cruz recta (+). Se mueve 1 casilla en cualquier dirección o da un salto de (2,0) / (2,2).'
+            },
+            G: {
+                code: 'G',
+                name: 'Jirafa (Zurafa)',
+                tag: 'Gran Saltador / Corredor (e2, h2)',
+                desc: 'Se mueve con un gran salto en L de (3,2) o (4,1), o al estilo Tamerlán (1 paso diagonal seguido de mínimo 3 pasos rectos libres).'
+            },
+            P: {
+                code: 'P',
+                name: 'Peón (Baidaq)',
+                tag: 'Infantería • Avanza 1',
+                desc: 'Avanza 1 casilla hacia adelante (o 2 desde la fila 3/8 en su primer movimiento) y captura 1 en diagonal. Corona en la última fila.'
+            }
+        };
+
+        /* =========================================================================
+           2. ICONOS SVG PERSONALIZADOS FIELES A LA IMAGEN (BLANCAS Y NEGRAS)
+           ========================================================================= */
+        function getPieceSVG(type, color) {
+            const isWhite = color === 'w';
+            const fill = isWhite ? '#ffffff' : '#141414';
+            const stroke = isWhite ? '#181818' : '#f3f4f6';
+            const innerStroke = isWhite ? '#181818' : '#e5e7eb';
+            const badgeFill = isWhite ? '#181818' : '#ffffff';
+
+            switch (type) {
+                case 'P': // Peón
+                    return `<svg viewBox="0 0 45 45" class="piece-svg">
+                        <path d="M 22.5,9 C 19.5,9 17,11.5 17,14.5 C 17,16.8 18.4,18.7 20.4,19.5 C 17,21 15,24.5 15,29 L 30,29 C 30,24.5 28,21 24.6,19.5 C 26.6,18.7 28,16.8 28,14.5 C 28,11.5 25.5,9 22.5,9 z" fill="${fill}" stroke="${stroke}" stroke-width="2.2"/>
+                        <path d="M 11,36 L 34,36 C 34,32.5 31,30.5 22.5,30.5 C 14,30.5 11,32.5 11,36 z" fill="${fill}" stroke="${stroke}" stroke-width="2.2"/>
+                    </svg>`;
+
+                case 'R': // Torre
+                    return `<svg viewBox="0 0 45 45" class="piece-svg">
+                        <g fill="${fill}" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M 9,39 L 36,39 L 36,36 L 9,36 L 9,39 z" />
+                            <path d="M 12,36 L 12,32 L 33,32 L 33,36 L 12,36 z" />
+                            <path d="M 11,14 L 11,9 L 15,9 L 15,11 L 20,11 L 20,9 L 25,9 L 25,11 L 30,11 L 30,9 L 34,9 L 34,14" />
+                            <path d="M 34,14 L 31,17 L 14,17 L 11,14" />
+                            <path d="M 31,17 L 31,29.5 L 14,29.5 L 14,17" />
+                            <path d="M 14,29.5 L 12,32 L 33,32 L 31,29.5" />
+                        </g>
+                    </svg>`;
+
+                case 'N': // Caballo
+                    return `<svg viewBox="0 0 45 45" class="piece-svg">
+                        <g fill="${fill}" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M 22,10 C 32.5,11 38.5,18 38,39 L 15,39 C 15,30 25,32.5 23,18" />
+                            <path d="M 24,18 C 24.38,20.91 18.45,25.37 16,27 C 13,29 13.18,31.34 11,31 C 9.958,30.06 12.41,27.96 11,28 C 10,28 11.19,29.23 10,30 C 9,30 5.997,31 6,26 C 6,24 12,14 12,14 C 12,14 13.89,12.1 14,10.5 C 13.27,9.506 13.5,8.5 13.5,7.5 C 14.5,6.5 16.5,10 16.5,10 L 18.5,10 C 18.5,10 19.28,8.008 21,7 C 22,7 22,10 22,10" />
+                            <circle cx="15.5" cy="14.5" r="1.2" fill="${badgeFill}" stroke="none"/>
+                        </g>
+                    </svg>`;
+
+                case 'B': // Alfil
+                    return `<svg viewBox="0 0 45 45" class="piece-svg">
+                        <g fill="${fill}" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M 9,36 C 12.39,35.03 19.11,36.43 22.5,34 C 25.89,36.43 32.61,35.03 36,36 C 36,36 37.65,36.54 39,38 C 38.32,38.97 37.35,38.99 36,38.5 C 32.61,37.53 25.89,38.96 22.5,37.5 C 19.11,38.96 12.39,37.53 9,38.5 C 7.646,38.99 6.677,38.97 6,38 C 7.354,36.06 9,36 9,36 z" />
+                            <path d="M 15,32 C 17.5,34.5 27.5,34.5 30,32 C 30.5,30.5 30,30 30,30 C 30,27.5 27.5,26 27.5,26 C 33,24.5 33.5,14.5 22.5,10.5 C 11.5,14.5 12,24.5 17.5,26 C 17.5,26 15,27.5 15,30 C 15,30 14.5,30.5 15,32 z" />
+                            <circle cx="22.5" cy="8" r="2.2" />
+                            <path d="M 19.5,17.5 L 25.5,17.5 M 22.5,14.5 L 22.5,20.5" stroke="${innerStroke}" stroke-width="2"/>
+                        </g>
+                    </svg>`;
+
+                case 'Q': // Reina
+                    return `<svg viewBox="0 0 45 45" class="piece-svg">
+                        <g fill="${fill}" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M 9,26 C 17.5,24.5 30,24.5 36,26 L 38.5,13.5 L 31,25 L 30.7,10.9 L 25.5,24.5 L 22.5,10 L 19.5,24.5 L 14.3,10.9 L 14,25 L 6.5,13.5 L 9,26 z" />
+                            <path d="M 9,26 C 9,28 10.5,28 11.5,30 C 12.5,31.5 12.5,31 12,33.5 C 10.5,34.5 11,36 11,36 C 9.5,37.5 11,38.5 11,38.5 C 17.5,39.5 27.5,39.5 34,38.5 C 34,38.5 35.5,37.5 34,36 C 34,36 34.5,34.5 33,33.5 C 32.5,31 32.5,31.5 33.5,30 C 34.5,28 36,28 36,26 C 27.5,24.5 17.5,24.5 9,26 z" />
+                            <circle cx="6" cy="12" r="1.8" />
+                            <circle cx="14" cy="9" r="1.8" />
+                            <circle cx="22.5" cy="8" r="1.8" />
+                            <circle cx="31" cy="9" r="1.8" />
+                            <circle cx="39" cy="12" r="1.8" />
+                        </g>
+                    </svg>`;
+
+                case 'K': // Rey
+                    return `<svg viewBox="0 0 45 45" class="piece-svg">
+                        <g fill="${fill}" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M 22.5,11.63 L 22.5,6" />
+                            <path d="M 20,8 L 25,8" />
+                            <path d="M 22.5,25 C 22.5,25 27,17.5 25.5,14.5 C 25.5,14.5 24.5,12 22.5,12 C 20.5,12 19.5,14.5 19.5,14.5 C 18,17.5 22.5,25 22.5,25" />
+                            <path d="M 11.5,37 C 17,40.5 27,40.5 32.5,37 L 32.5,30 C 32.5,30 41.5,25.5 38.5,19.5 C 34.5,13 25,16 22.5,23.5 L 22.5,27 L 22.5,23.5 C 19,16 9.5,13 6.5,19.5 C 3.5,25.5 11.5,29.5 11.5,29.5 L 11.5,37 z" />
+                        </g>
+                    </svg>`;
+
+                case 'E': // Elefante (esquinas a1, l1, a10, l10 - Silueta de Elefante con colmillo blanco como en la imagen)
+                    return `<svg viewBox="0 0 45 45" class="piece-svg">
+                        <g fill="${fill}" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M 14,38 L 14,29 L 18,29 L 18,38 L 26,38 L 26,29 L 30,29 L 30,38 L 36,38 L 36,22 C 36,13 29,9 21,9 C 14,9 9,14 9,21 L 9,31 C 9,34 12,34 12,31 L 12,25" />
+                            <!-- Colmillo característico -->
+                            <path d="M 7,26 C 11,27 14,25 15,22" stroke="${badgeFill}" stroke-width="2.6" fill="none"/>
+                            <!-- Oreja y ojo -->
+                            <path d="M 22,14 C 26,14 28,18 26,23" stroke="${innerStroke}" stroke-width="2" fill="none"/>
+                            <circle cx="15.5" cy="16.5" r="1.4" fill="${badgeFill}" stroke="none"/>
+                        </g>
+                    </svg>`;
+
+                case 'C': // Camello (c1, j1 - Cuello curvo en S de camello como en la imagen)
+                    return `<svg viewBox="0 0 45 45" class="piece-svg">
+                        <g fill="${fill}" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M 11,38 L 35,38 C 35,28 32,22 26,21 C 22,20 20,25 19,21 C 18,16 25,14 24,9 C 23,7 19,7 17,9 C 13,11 10,13 10,16 C 10,18 14,18 15,16 C 15,21 11,26 11,38 z" />
+                            <circle cx="16.5" cy="11.5" r="1.3" fill="${badgeFill}" stroke="none"/>
+                        </g>
+                    </svg>`;
+
+                case 'G': // Jirafa (e2, h2 - Cuello largo con ossicones/cuernos y manchas)
+                    return `<svg viewBox="0 0 45 45" class="piece-svg">
+                        <g fill="${fill}" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M 11,39 L 34,39 L 31,26 L 24,12 L 26,7 L 23,9 L 20,6 L 19,10 L 12,15 C 11,17 13,19 16,18 L 19,27 L 11,39 z" />
+                            <circle cx="17.5" cy="13.5" r="1.3" fill="${badgeFill}" stroke="none"/>
+                            <circle cx="23" cy="23" r="1.4" fill="${badgeFill}" stroke="none"/>
+                            <circle cx="25" cy="30" r="1.6" fill="${badgeFill}" stroke="none"/>
+                            <circle cx="19" cy="33" r="1.4" fill="${badgeFill}" stroke="none"/>
+                        </g>
+                    </svg>`;
+
+                case 'W': // Máquina de Guerra / Dabbaba (d1, i1 - Redondo con X en el centro como la imagen)
+                    return `<svg viewBox="0 0 45 45" class="piece-svg">
+                        <g fill="${fill}" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M 10,38 L 35,38 L 33,32 L 12,32 Z" />
+                            <circle cx="22.5" cy="20.5" r="11" />
+                            <path d="M 17,15 L 28,26 M 28,15 L 17,26" stroke="${innerStroke}" stroke-width="2.8"/>
+                        </g>
+                    </svg>`;
+
+                case 'D': // Guardia / Centinela (d2, i2 - Redondo con Cruz + en el centro como la imagen)
+                    return `<svg viewBox="0 0 45 45" class="piece-svg">
+                        <g fill="${fill}" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M 10,38 L 35,38 L 33,32 L 12,32 Z" />
+                            <circle cx="22.5" cy="20.5" r="11" />
+                            <path d="M 22.5,13.5 L 22.5,27.5 M 15.5,20.5 L 29.5,20.5" stroke="${innerStroke}" stroke-width="2.8"/>
+                        </g>
+                    </svg>`;
+
+                case 'S': // Torre de Asedio / Rukh (e1, h1 - Carro almenado con ruedas/base ancha como la imagen)
+                    return `<svg viewBox="0 0 45 45" class="piece-svg">
+                        <g fill="${fill}" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="8" y="32" width="29" height="6" rx="1" />
+                            <path d="M 11,32 L 13,12 L 17,12 L 17,16 L 21,16 L 21,12 L 24,12 L 24,16 L 28,16 L 28,12 L 32,12 L 34,32 Z" />
+                            <path d="M 17,21 L 17,28 M 22.5,20 L 22.5,28 M 28,21 L 28,28" stroke="${innerStroke}" stroke-width="2"/>
+                        </g>
+                    </svg>`;
+
+                case 'V': // Visir (f1, g10 - Emblema / Escudo invertido con barra superior y cruz como la imagen)
+                    return `<svg viewBox="0 0 45 45" class="piece-svg">
+                        <g fill="${fill}" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="11" y="9" width="23" height="4.5" rx="1.5" />
+                            <path d="M 13,16 L 32,16 L 31,27 C 30,33 22.5,38 22.5,38 C 22.5,38 15,33 14,27 Z" />
+                            <path d="M 22.5,21 L 22.5,30 M 18,25.5 L 27,25.5" stroke="${innerStroke}" stroke-width="2.5"/>
+                        </g>
+                    </svg>`;
+
+                case 'F': // General / Ferz (g1, f10 - Emblema gemelo del Visir con punto/rombo central)
+                    return `<svg viewBox="0 0 45 45" class="piece-svg">
+                        <g fill="${fill}" stroke="${stroke}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="11" y="9" width="23" height="4.5" rx="1.5" />
+                            <path d="M 13,16 L 32,16 L 31,27 C 30,33 22.5,38 22.5,38 C 22.5,38 15,33 14,27 Z" />
+                            <circle cx="22.5" cy="25.5" r="3.5" fill="${badgeFill}" stroke="none"/>
+                        </g>
+                    </svg>`;
+            }
+            return '';
+        }
+
+        /* =========================================================================
+           3. ESTADO DEL JUEGO Y POSICIÓN INICIAL 12x10 (EXACTA A LA IMAGEN)
+           ========================================================================= */
+        const FOURTEEN_DAYS_MS = 14 * 24 * 60 * 60 * 1000;
+
+        let gameState = {
+            board: [],             // Matriz 10x12 (row 0 = fila 10 negra, row 9 = fila 1 blanca)
+            turn: 'w',             // 'w' o 'b'
+            moveHistory: [],       // [{ from, to, piece, captured, notation, ts }]
+            capturedByWhite: [],
+            capturedByBlack: [],
+            lastMove: null,        // { from: [r,c], to: [r,c] }
+            daysPerMove: 14,       // Plazo de correspondencia en días
+            lastMoveTimestamp: Date.now(),
+            whiteName: 'Blancas',
+            blackName: 'Negras',
+            giraffeRule: 'both',
+            gameOver: false,
+            winner: null,
+            reason: ''
+        };
+
+        let selectedSquare = null; // [r, c]
+        let legalMovesForSelected = []; // [{ r, c, isCapture }]
+        let boardFlipped = false;
+        let soundEnabled = true;
+        let undoStack = [];
+
+        // Construye la disposición exacta 12x10 de la imagen
+        function createInitialBoard() {
+            const emptyRow = () => Array(NUM_COLS).fill(null);
+            const b = [];
+
+            // Fila 10 (Negras - índice 0): E, N, C, W, S, F, V, S, W, C, N, E
+            b[0] = ['bE','bN','bC','bW','bS','bF','bV','bS','bW','bC','bN','bE'];
+            // Fila 9 (Negras - índice 1): R, N, B, D, G, K, Q, G, D, B, N, R (En la imagen el Rey negro está en f9 y Reina en g9)
+            b[1] = ['bR','bN','bB','bD','bG','bK','bQ','bG','bD','bB','bN','bR'];
+            // Fila 8 (Negras - índice 2): 12 Peones
+            b[2] = Array(NUM_COLS).fill('bP');
+
+            // Filas 7, 6, 5, 4 vacías (índices 3, 4, 5, 6)
+            b[3] = emptyRow();
+            b[4] = emptyRow();
+            b[5] = emptyRow();
+            b[6] = emptyRow();
+
+            // Fila 3 (Blancas - índice 7): 12 Peones
+            b[7] = Array(NUM_COLS).fill('wP');
+            // Fila 2 (Blancas - índice 8): R, N, B, D, G, Q, K, G, D, B, N, R (En la imagen la Reina blanca está en f2 y Rey en g2)
+            b[8] = ['wR','wN','wB','wD','wG','wQ','wK','wG','wD','wB','wN','wR'];
+            // Fila 1 (Blancas - índice 9): E, N, C, W, S, V, F, S, W, C, N, E
+            b[9] = ['wE','wN','wC','wW','wS','wV','wF','wS','wW','wC','wN','wE'];
+
+            return b;
+        }
+
+        /* =========================================================================
+           4. MOTOR DE REGLAS Y GENERADOR DE MOVIMIENTOS PARA LAS 14 PIEZAS
+           ========================================================================= */
+        function inBounds(r, c) {
+            return r >= 0 && r < NUM_ROWS && c >= 0 && c < NUM_COLS;
+        }
+
+        function getPseudoLegalMoves(board, r, c) {
+            const piece = board[r][c];
+            if (!piece) return [];
+            const color = piece[0];
+            const type = piece[1];
+            const moves = [];
+
+            const addTarget = (tr, tc) => {
+                if (!inBounds(tr, tc)) return false;
+                const occupant = board[tr][tc];
+                if (!occupant) {
+                    moves.push({ r: tr, c: tc, isCapture: false });
+                    return true; // puede seguir deslizando
+                } else if (occupant[0] !== color) {
+                    moves.push({ r: tr, c: tc, isCapture: true });
+                    return false;
+                }
+                return false;
+            };
+
+            const addSlide = (dirs, maxSteps = 12) => {
+                for (const [dr, dc] of dirs) {
+                    for (let step = 1; step <= maxSteps; step++) {
+                        if (!addTarget(r + dr * step, c + dc * step)) break;
+                    }
+                }
+            };
+
+            const addLeaps = (offsets) => {
+                for (const [dr, dc] of offsets) {
+                    addTarget(r + dr, c + dc);
+                }
+            };
+
+            const ORTHO = [[-1,0],[1,0],[0,-1],[0,1]];
+            const DIAG  = [[-1,-1],[-1,1],[1,-1],[1,1]];
+            const ALL8  = [...ORTHO, ...DIAG];
+
+            switch (type) {
+                case 'P': {
+                    const dir = color === 'w' ? -1 : 1;
+                    const startRow = color === 'w' ? 7 : 2; // fila 3 blanca o fila 8 negra
+                    // 1 paso adelante
+                    if (inBounds(r + dir, c) && !board[r + dir][c]) {
+                        moves.push({ r: r + dir, c, isCapture: false });
+                        // 2 pasos opcional desde la fila inicial
+                        if (r === startRow && inBounds(r + dir * 2, c) && !board[r + dir * 2][c]) {
+                            moves.push({ r: r + dir * 2, c, isCapture: false });
+                        }
+                    }
+                    // Capturas diagonales
+                    for (const dc of [-1, 1]) {
+                        const tr = r + dir, tc = c + dc;
+                        if (inBounds(tr, tc) && board[tr][tc] && board[tr][tc][0] !== color) {
+                            moves.push({ r: tr, c: tc, isCapture: true });
+                        }
+                    }
+                    break;
+                }
+
+                case 'K':
+                    addLeaps(ALL8);
+                    break;
+
+                case 'Q':
+                    addSlide(ALL8);
+                    break;
+
+                case 'R':
+                    addSlide(ORTHO);
+                    break;
+
+                case 'B':
+                    addSlide(DIAG);
+                    break;
+
+                case 'N': // Caballo (2,1)
+                    addLeaps([[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]);
+                    break;
+
+                case 'C': // Camello (3,1)
+                    addLeaps([[-3,-1],[-3,1],[-1,-3],[-1,3],[1,-3],[1,3],[3,-1],[3,1]]);
+                    break;
+
+                case 'E': // Elefante (salto diagonal exacto de 2)
+                    addLeaps([[-2,-2],[-2,2],[2,-2],[2,2]]);
+                    break;
+
+                case 'W': // Máquina de Guerra / Dabbaba (salto ortogonal exacto de 2)
+                    addLeaps([[-2,0],[2,0],[0,-2],[0,2]]);
+                    break;
+
+                case 'S': // Torre de Asedio (Desliza como Torre hasta 4 casillas + salto diagonal de 2)
+                    addSlide(ORTHO, 4);
+                    addLeaps([[-2,-2],[-2,2],[2,-2],[2,2]]);
+                    break;
+
+                case 'V': // Visir (1 paso en cualquier dirección + salto ortogonal de 2)
+                    addLeaps([...ALL8, [-2,0],[2,0],[0,-2],[0,2]]);
+                    break;
+
+                case 'F': // General (1 paso en cualquier dirección + salto diagonal de 2)
+                    addLeaps([...ALL8, [-2,-2],[-2,2],[2,-2],[2,2]]);
+                    break;
+
+                case 'D': // Guardia / Centinela (1 paso en cualquier dirección + saltos de 2)
+                    addLeaps([...ALL8, [-2,0],[2,0],[0,-2],[0,2],[-2,-2],[-2,2],[2,-2],[2,2]]);
+                    break;
+
+                case 'G': { // Jirafa
+                    const rule = gameState.giraffeRule || 'both';
+                    if (rule === 'leaper' || rule === 'both') {
+                        // Saltos largos de Jirafa (3,2) y (4,1)
+                        addLeaps([
+                            [-3,-2],[-3,2],[-2,-3],[-2,3],[2,-3],[2,3],[3,-2],[3,2],
+                            [-4,-1],[-4,1],[-1,-4],[-1,4],[1,-4],[1,4],[4,-1],[4,1]
+                        ]);
+                    }
+                    if (rule === 'tamerlane' || rule === 'both') {
+                        // Movimiento histórico de Jirafa de Tamerlán: 1 diagonal vacío + mínimo 3 pasos rectos hacia afuera
+                        for (const [dr, dc] of DIAG) {
+                            const midR = r + dr, midC = c + dc;
+                            if (!inBounds(midR, midC) || board[midR][midC]) continue;
+                            // Dos direcciones ortogonales que se alejan
+                            const orthoDirs = [[dr, 0], [0, dc]];
+                            for (const [or, oc] of orthoDirs) {
+                                for (let step = 1; step <= 10; step++) {
+                                    const tr = midR + or * step;
+                                    const tc = midC + oc * step;
+                                    if (!inBounds(tr, tc)) break;
+                                    const occ = board[tr][tc];
+                                    if (step < 3) {
+                                        if (occ) break; // Las primeras 2 casillas rectas deben estar libres
+                                    } else {
+                                        if (!occ) {
+                                            moves.push({ r: tr, c: tc, isCapture: false });
+                                        } else {
+                                            if (occ[0] !== color) moves.push({ r: tr, c: tc, isCapture: true });
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+
+            // Eliminar duplicados si alguna regla combinada coincide
+            const seen = new Set();
+            return moves.filter(m => {
+                const key = `${m.r},${m.c}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            });
+        }
+
+        function findKing(board, color) {
+            const target = color + 'K';
+            for (let r = 0; r < NUM_ROWS; r++) {
+                for (let c = 0; c < NUM_COLS; c++) {
+                    if (board[r][c] === target) return [r, c];
+                }
+            }
+            return null;
+        }
+
+        function isKingInCheck(board, color) {
+            const kingPos = findKing(board, color);
+            if (!kingPos) return false;
+            const [kr, kc] = kingPos;
+            const opp = color === 'w' ? 'b' : 'w';
+
+            for (let r = 0; r < NUM_ROWS; r++) {
+                for (let c = 0; c < NUM_COLS; c++) {
+                    const p = board[r][c];
+                    if (p && p[0] === opp) {
+                        const moves = getPseudoLegalMoves(board, r, c);
+                        if (moves.some(m => m.r === kr && m.c === kc)) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function getLegalMoves(board, r, c) {
+            const piece = board[r][c];
+            if (!piece) return [];
+            const color = piece[0];
+            const pseudo = getPseudoLegalMoves(board, r, c);
+            return pseudo.filter(m => {
+                const copy = board.map(row => [...row]);
+                copy[m.r][m.c] = copy[r][c];
+                copy[r][c] = null;
+                return !isKingInCheck(copy, color);
+            });
+        }
+
+        function hasAnyLegalMoves(board, color) {
+            for (let r = 0; r < NUM_ROWS; r++) {
+                for (let c = 0; c < NUM_COLS; c++) {
+                    if (board[r][c] && board[r][c][0] === color) {
+                        if (getLegalMoves(board, r, c).length > 0) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /* =========================================================================
+           5. INTERFAZ DEL TABLERO, SONIDO Y EJECUCIÓN DE JUGADAS
+           ========================================================================= */
+        let audioCtx = null;
+        function playChessSound(type) {
+            if (!soundEnabled) return;
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                const now = audioCtx.currentTime;
+                if (type === 'capture') {
+                    osc.frequency.setValueAtTime(190, now);
+                    osc.frequency.exponentialRampToValueAtTime(95, now + 0.09);
+                    gain.gain.setValueAtTime(0.22, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.09);
+                    osc.start(now);
+                    osc.stop(now + 0.09);
+                } else if (type === 'check') {
+                    osc.frequency.setValueAtTime(520, now);
+                    osc.frequency.exponentialRampToValueAtTime(340, now + 0.18);
+                    gain.gain.setValueAtTime(0.25, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
+                    osc.start(now);
+                    osc.stop(now + 0.18);
+                } else {
+                    osc.frequency.setValueAtTime(280, now);
+                    osc.frequency.exponentialRampToValueAtTime(140, now + 0.06);
+                    gain.gain.setValueAtTime(0.16, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.06);
+                    osc.start(now);
+                    osc.stop(now + 0.06);
+                }
+            } catch (e) {}
+        }
+
+        function coordToAlgebraic(r, c) {
+            const file = FILES[c];
+            const rank = NUM_ROWS - r;
+            return `${file}${rank}`;
+        }
+
+        function renderCoordinates() {
+            const filesOrder = boardFlipped ? [...FILES].reverse() : FILES;
+            const ranksOrder = boardFlipped
+                ? Array.from({ length: NUM_ROWS }, (_, i) => i + 1)
+                : Array.from({ length: NUM_ROWS }, (_, i) => NUM_ROWS - i);
+
+            const fileHTML = filesOrder.map(f => `<span>${f}</span>`).join('');
+            document.getElementById('topFilesCoord').innerHTML = fileHTML;
+            document.getElementById('bottomFilesCoord').innerHTML = fileHTML;
+
+            const rankHTML = ranksOrder.map(rk => `<span>${rk}</span>`).join('');
+            document.getElementById('leftRanksCoord').innerHTML = rankHTML;
+            document.getElementById('rightRanksCoord').innerHTML = rankHTML;
+        }
+
+        function renderBoard() {
+            renderCoordinates();
+            const boardEl = document.getElementById('chessboard');
+            boardEl.innerHTML = '';
+
+            const whiteInCheck = isKingInCheck(gameState.board, 'w');
+            const blackInCheck = isKingInCheck(gameState.board, 'b');
+
+            for (let vr = 0; vr < NUM_ROWS; vr++) {
+                for (let vc = 0; vc < NUM_COLS; vc++) {
+                    const r = boardFlipped ? (NUM_ROWS - 1 - vr) : vr;
+                    const c = boardFlipped ? (NUM_COLS - 1 - vc) : vc;
+
+                    // En la imagen a10 (r=0,c=0) es casilla blanca y a1 (r=9,c=0) es verde oscura
+                    const isLight = (r + c) % 2 === 0;
+                    const sq = document.createElement('div');
+                    sq.className = `square ${isLight ? 'light' : 'dark'}`;
+
+                    // Casilla seleccionada
+                    if (selectedSquare && selectedSquare[0] === r && selectedSquare[1] === c) {
+                        sq.classList.add('selected');
+                    }
+
+                    // Última jugada realizada
+                    if (gameState.lastMove) {
+                        const { from, to } = gameState.lastMove;
+                        if ((from[0] === r && from[1] === c) || (to[0] === r && to[1] === c)) {
+                            sq.classList.add('last-move');
+                        }
+                    }
+
+                    const piece = gameState.board[r][c];
+                    if (piece) {
+                        if ((piece === 'wK' && whiteInCheck) || (piece === 'bK' && blackInCheck)) {
+                            sq.classList.add('in-check');
+                        }
+                        sq.innerHTML = getPieceSVG(piece[1], piece[0]);
+                    }
+
+                    // Indicador de movimiento legal
+                    const legal = legalMovesForSelected.find(m => m.r === r && m.c === c);
+                    if (legal) {
+                        const marker = document.createElement('div');
+                        marker.className = legal.isCapture ? 'legal-capture' : 'legal-dot';
+                        sq.appendChild(marker);
+                    }
+
+                    sq.addEventListener('click', () => onSquareClick(r, c));
+                    boardEl.appendChild(sq);
+                }
+            }
+
+            updateSidePanels();
+        }
+
+        function onSquareClick(r, c) {
+            const clickedPiece = gameState.board[r][c];
+            if (clickedPiece) {
+                updateInspector(clickedPiece[1], clickedPiece[0]);
+            }
+
+            if (gameState.gameOver) return;
+
+            // Si ya hay una pieza seleccionada y el clic es un destino legal
+            if (selectedSquare) {
+                const move = legalMovesForSelected.find(m => m.r === r && m.c === c);
+                if (move) {
+                    executeMove(selectedSquare[0], selectedSquare[1], r, c);
+                    return;
+                }
+            }
+
+            // Seleccionar pieza propia del turno activo
+            if (clickedPiece && clickedPiece[0] === gameState.turn) {
+                selectedSquare = [r, c];
+                legalMovesForSelected = getLegalMoves(gameState.board, r, c);
+            } else {
+                selectedSquare = null;
+                legalMovesForSelected = [];
+            }
+
+            renderBoard();
+        }
+
+        function executeMove(fromR, fromC, toR, toC, isRemote = false) {
+            // Guardar copia para botón Deshacer
+            undoStack.push(JSON.stringify(gameState));
+
+            const movingPiece = gameState.board[fromR][fromC];
+            const targetPiece = gameState.board[toR][toC];
+            const color = movingPiece[0];
+            const type = movingPiece[1];
+
+            // Captura
+            if (targetPiece) {
+                if (color === 'w') gameState.capturedByWhite.push(targetPiece);
+                else gameState.capturedByBlack.push(targetPiece);
+            }
+
+            // Mover pieza
+            gameState.board[toR][toC] = movingPiece;
+            gameState.board[fromR][fromC] = null;
+
+            // Coronación en la fila 10 (r=0 para blancas) o fila 1 (r=9 para negras)
+            let promotedTo = null;
+            if (type === 'P' && (toR === 0 || toR === NUM_ROWS - 1)) {
+                // Corona en Reina o en la pieza noble de su columna histórica
+                const promoMap = ['E','N','C','W','S','Q','Q','S','W','C','N','E'];
+                promotedTo = promoMap[toC] || 'Q';
+                gameState.board[toR][toC] = color + promotedTo;
+            }
+
+            const fromAlg = coordToAlgebraic(fromR, fromC);
+            const toAlg = coordToAlgebraic(toR, toC);
+            const pSymbol = type === 'P' ? '' : type;
+            const capSymbol = targetPiece ? 'x' : '-';
+            const promoSuffix = promotedTo ? `=${promotedTo}` : '';
+
+            gameState.lastMove = { from: [fromR, fromC], to: [toR, toC] };
+            gameState.turn = color === 'w' ? 'b' : 'w';
+            gameState.lastMoveTimestamp = Date.now(); // Reinicia el plazo de 14 días para el siguiente jugador
+
+            const nextInCheck = isKingInCheck(gameState.board, gameState.turn);
+            const nextHasMoves = hasAnyLegalMoves(gameState.board, gameState.turn);
+            let checkSuffix = nextInCheck ? '+' : '';
+
+            if (!nextHasMoves) {
+                gameState.gameOver = true;
+                if (nextInCheck) {
+                    checkSuffix = '#';
+                    gameState.winner = color;
+                    gameState.reason = `¡Jaque Mate! Ganan las ${color === 'w' ? 'Blancas' : 'Negras'}.`;
+                } else {
+                    gameState.winner = 'draw';
+                    gameState.reason = 'Fin de la partida por Rey Ahogado.';
+                }
+            }
+
+            const notation = `${pSymbol}${fromAlg}${capSymbol}${toAlg}${promoSuffix}${checkSuffix}`;
+            gameState.moveHistory.push({
+                f: [fromR, fromC],
+                t: [toR, toC],
+                n: notation
+            });
+
+            selectedSquare = null;
+            legalMovesForSelected = [];
+
+            playChessSound(nextInCheck ? 'check' : (targetPiece ? 'capture' : 'move'));
+            syncUrlHashWithGameState();
+            renderBoard();
+
+            if (!isRemote && peerConnection && peerConnection.open) {
+                peerConnection.send({ type: 'SYNC_STATE', state: serializeStateCompact() });
+            }
+        }
+
+        function updateInspector(type, color = 'w') {
+            const info = PIECE_INFO[type];
+            if (!info) return;
+            document.getElementById('inspectorIcon').innerHTML = getPieceSVG(type, color);
+            document.getElementById('inspectorTitle').textContent = info.name;
+            document.getElementById('inspectorSubtitle').textContent = info.tag;
+            document.getElementById('inspectorDesc').textContent = info.desc;
+        }
+
+        /* =========================================================================
+           6. RELOJES DE CORRESPONDENCIA (14 DÍAS POR JUGADA) Y PANELES LATERALES
+           ========================================================================= */
+        function formatRemainingTime(ms) {
+            if (ms <= 0) return '00d 00h 00m 00s';
+            const totalSeconds = Math.floor(ms / 1000);
+            const days = Math.floor(totalSeconds / 86400);
+            const hours = Math.floor((totalSeconds % 86400) / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+            const pad = n => String(n).padStart(2, '0');
+            return `${days}d ${pad(hours)}h ${pad(minutes)}m ${pad(seconds)}s`;
+        }
+
+        function updateClocksDisplay() {
+            const days = Number(gameState.daysPerMove);
+            if (!days || days <= 0) {
+                document.getElementById('topClockDisplay').textContent = '∞ Sin límite';
+                document.getElementById('bottomClockDisplay').textContent = '∞ Sin límite';
+                document.getElementById('mobileTopClock').textContent = '∞';
+                document.getElementById('mobileBottomClock').textContent = '∞';
+                return;
+            }
+
+            const limitMs = days * 24 * 60 * 60 * 1000;
+            const elapsed = Date.now() - (gameState.lastMoveTimestamp || Date.now());
+            const activeRemaining = Math.max(0, limitMs - elapsed);
+
+            if (activeRemaining === 0 && !gameState.gameOver && gameState.moveHistory.length > 0) {
+                gameState.gameOver = true;
+                gameState.winner = gameState.turn === 'w' ? 'b' : 'w';
+                gameState.reason = `Plazo de ${days} días agotado.`;
+            }
+
+            const fullText = `${days}d 00h 00m 00s`;
+            const activeText = formatRemainingTime(activeRemaining);
+
+            const topColor = boardFlipped ? 'w' : 'b';
+            const bottomColor = boardFlipped ? 'b' : 'w';
+
+            document.getElementById('topClockDisplay').textContent = (gameState.turn === topColor && !gameState.gameOver) ? activeText : fullText;
+            document.getElementById('bottomClockDisplay').textContent = (gameState.turn === bottomColor && !gameState.gameOver) ? activeText : fullText;
+
+            document.getElementById('mobileTopClock').textContent = ((gameState.turn === topColor) ? activeText : fullText).slice(0, 11);
+            document.getElementById('mobileBottomClock').textContent = ((gameState.turn === bottomColor) ? activeText : fullText).slice(0, 11);
+        }
+
+        function updateSidePanels() {
+            const topColor = boardFlipped ? 'w' : 'b';
+            const bottomColor = boardFlipped ? 'b' : 'w';
+
+            // Nombres y colores
+            document.getElementById('topPlayerName').textContent = topColor === 'w' ? gameState.whiteName : gameState.blackName;
+            document.getElementById('bottomPlayerName').textContent = bottomColor === 'w' ? gameState.whiteName : gameState.blackName;
+            document.getElementById('mobileTopName').textContent = topColor === 'w' ? gameState.whiteName : gameState.blackName;
+            document.getElementById('mobileBottomName').textContent = bottomColor === 'w' ? gameState.whiteName : gameState.blackName;
+
+            document.getElementById('topPlayerColorIndicator').className = `w-3.5 h-3.5 rounded-sm shadow ${topColor === 'w' ? 'bg-white border border-gray-400' : 'bg-black border border-gray-500'}`;
+            document.getElementById('bottomPlayerColorIndicator').className = `w-3.5 h-3.5 rounded-sm shadow ${bottomColor === 'w' ? 'bg-white border border-gray-400' : 'bg-black border border-gray-500'}`;
+
+            // Resaltar tarjeta del jugador activo
+            const topCard = document.getElementById('topPlayerCard');
+            const bottomCard = document.getElementById('bottomPlayerCard');
+            if (gameState.turn === topColor && !gameState.gameOver) {
+                topCard.className = 'bg-[#262421] rounded border-2 border-[#629924] p-3 transition';
+                bottomCard.className = 'bg-[#262421] rounded border border-[#322f2b] p-3 transition';
+                document.getElementById('topPlayerStatus').textContent = 'Turno activo';
+                document.getElementById('topPlayerStatus').className = 'text-[11px] text-[#73b12b] font-semibold';
+                document.getElementById('bottomPlayerStatus').textContent = 'Esperando jugada';
+                document.getElementById('bottomPlayerStatus').className = 'text-[11px] text-[#8c8881]';
+            } else {
+                bottomCard.className = 'bg-[#262421] rounded border-2 border-[#629924] p-3 transition';
+                topCard.className = 'bg-[#262421] rounded border border-[#322f2b] p-3 transition';
+                document.getElementById('bottomPlayerStatus').textContent = 'Turno activo';
+                document.getElementById('bottomPlayerStatus').className = 'text-[11px] text-[#73b12b] font-semibold';
+                document.getElementById('topPlayerStatus').textContent = 'Esperando jugada';
+                document.getElementById('topPlayerStatus').className = 'text-[11px] text-[#8c8881]';
+            }
+
+            // Insignia de turno
+            const turnBadge = document.getElementById('turnBadge');
+            if (gameState.gameOver) {
+                turnBadge.textContent = 'Finalizada';
+                turnBadge.className = 'text-xs font-bold px-2 py-0.5 rounded bg-amber-500 text-black';
+            } else if (gameState.turn === 'w') {
+                turnBadge.textContent = 'Turno: Blancas';
+                turnBadge.className = 'text-xs font-bold px-2 py-0.5 rounded bg-white text-black';
+            } else {
+                turnBadge.textContent = 'Turno: Negras';
+                turnBadge.className = 'text-xs font-bold px-2 py-0.5 rounded bg-black text-white border border-gray-600';
+            }
+
+            // Piezas capturadas
+            const renderCapList = (arr) => arr.map(p => `<div class="w-5 h-5">${getPieceSVG(p[1], p[0])}</div>`).join('');
+            document.getElementById('topCaptured').innerHTML = renderCapList(topColor === 'w' ? gameState.capturedByWhite : gameState.capturedByBlack);
+            document.getElementById('bottomCaptured').innerHTML = renderCapList(bottomColor === 'w' ? gameState.capturedByWhite : gameState.capturedByBlack);
+
+            // Historial de jugadas en pares
+            const container = document.getElementById('moveHistoryContainer');
+            const totalMoves = gameState.moveHistory.length;
+            document.getElementById('moveCounterBadge').textContent = `Jugada ${Math.floor(totalMoves / 2) + 1}`;
+
+            if (totalMoves === 0 && !gameState.gameOver) {
+                container.innerHTML = `<div class="p-4 text-center text-[#8c8881] font-sans">Haz tu primera jugada en el tablero y luego presiona <b>"Copiar Link con mi Jugada"</b> para enviársela a tu amigo.</div>`;
+            } else {
+                let html = '';
+                for (let i = 0; i < totalMoves; i += 2) {
+                    const moveNum = (i / 2) + 1;
+                    const wMove = gameState.moveHistory[i]?.n || '';
+                    const bMove = gameState.moveHistory[i + 1]?.n || '';
+                    html += `
+                        <div class="grid grid-cols-7 px-3 py-1.5 hover:bg-[#2c2926]">
+                            <span class="col-span-1 text-[#8c8881]">${moveNum}.</span>
+                            <span class="col-span-3 text-white font-medium">${wMove}</span>
+                            <span class="col-span-3 text-[#bababa] font-medium">${bMove}</span>
+                        </div>
+                    `;
+                }
+                if (gameState.gameOver) {
+                    html += `<div class="p-3 bg-[#629924]/20 text-center text-white font-sans font-bold text-xs">${gameState.reason}</div>`;
+                }
+                container.innerHTML = html;
+                container.scrollTop = container.scrollHeight;
+            }
+
+            updateClocksDisplay();
+        }
+
+        /* =========================================================================
+           7. CODIFICACIÓN DE PARTIDA EN EL URL HASH (100% COMPATIBLE GITHUB PAGES)
+           ========================================================================= */
+        // Serializa la partida de forma compacta para que cualquier link lleve toda la partida
+        function serializeStateCompact() {
+            const payload = {
+                m: gameState.moveHistory.map(item => [item.f[0], item.f[1], item.t[0], item.t[1]]),
+                d: gameState.daysPerMove,
+                ts: gameState.lastMoveTimestamp,
+                wn: gameState.whiteName,
+                bn: gameState.blackName,
+                gr: gameState.giraffeRule,
+                go: gameState.gameOver ? 1 : 0,
+                rs: gameState.reason
+            };
+            return btoa(encodeURIComponent(JSON.stringify(payload)));
+        }
+
+        function loadStateFromCompact(encodedStr) {
+            try {
+                const json = decodeURIComponent(atob(encodedStr));
+                const data = JSON.parse(json);
+
+                // Reconstruir desde el inicio aplicando cada jugada para garantizar integridad total
+                gameState.board = createInitialBoard();
+                gameState.turn = 'w';
+                gameState.moveHistory = [];
+                gameState.capturedByWhite = [];
+                gameState.capturedByBlack = [];
+                gameState.lastMove = null;
+                gameState.daysPerMove = data.d ?? 14;
+                gameState.whiteName = data.wn || 'Blancas';
+                gameState.blackName = data.bn || 'Negras';
+                gameState.giraffeRule = data.gr || 'both';
+                gameState.gameOver = false;
+                gameState.reason = '';
+
+                if (Array.isArray(data.m)) {
+                    for (const [fr, fc, tr, tc] of data.m) {
+                        executeMoveSilent(fr, fc, tr, tc);
+                    }
+                }
+
+                gameState.lastMoveTimestamp = data.ts || Date.now();
+                if (data.go) {
+                    gameState.gameOver = true;
+                    gameState.reason = data.rs || 'Partida finalizada.';
+                }
+
+                updateTimeControlLabels();
+                return true;
+            } catch (err) {
+                console.error('Error al leer estado del link:', err);
+                return false;
+            }
+        }
+
+        function executeMoveSilent(fromR, fromC, toR, toC) {
+            const movingPiece = gameState.board[fromR][fromC];
+            if (!movingPiece) return;
+            const targetPiece = gameState.board[toR][toC];
+            const color = movingPiece[0];
+            const type = movingPiece[1];
+
+            if (targetPiece) {
+                if (color === 'w') gameState.capturedByWhite.push(targetPiece);
+                else gameState.capturedByBlack.push(targetPiece);
+            }
+
+            gameState.board[toR][toC] = movingPiece;
+            gameState.board[fromR][fromC] = null;
+
+            let promotedTo = null;
+            if (type === 'P' && (toR === 0 || toR === NUM_ROWS - 1)) {
+                const promoMap = ['E','N','C','W','S','Q','Q','S','W','C','N','E'];
+                promotedTo = promoMap[toC] || 'Q';
+                gameState.board[toR][toC] = color + promotedTo;
+            }
+
+            const fromAlg = coordToAlgebraic(fromR, fromC);
+            const toAlg = coordToAlgebraic(toR, toC);
+            const pSymbol = type === 'P' ? '' : type;
+            const capSymbol = targetPiece ? 'x' : '-';
+            const promoSuffix = promotedTo ? `=${promotedTo}` : '';
+
+            gameState.lastMove = { from: [fromR, fromC], to: [toR, toC] };
+            gameState.turn = color === 'w' ? 'b' : 'w';
+
+            const nextInCheck = isKingInCheck(gameState.board, gameState.turn);
+            const notation = `${pSymbol}${fromAlg}${capSymbol}${toAlg}${promoSuffix}${nextInCheck ? '+' : ''}`;
+            gameState.moveHistory.push({
+                f: [fromR, fromC],
+                t: [toR, toC],
+                n: notation
+            });
+        }
+
+        function syncUrlHashWithGameState() {
+            const encoded = serializeStateCompact();
+            const url = new URL(window.location.href);
+            url.hash = `g=${encoded}`;
+            window.history.replaceState(null, '', url.toString());
+            const input = document.getElementById('correspondenceUrlInput');
+            if (input) input.value = url.toString();
+        }
+
+        function copyTextToClipboard(text, message) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            showToast(message);
+        }
+
+        function copyTurnLink() {
+            syncUrlHashWithGameState();
+            copyTextToClipboard(window.location.href, '¡Link de la partida (con plazo de 14 días) copiado! Envíalo a tu amigo.');
+        }
+
+        /* =========================================================================
+           8. SALA P2P EN TIEMPO REAL OPCIONAL (PeerJS WebRTC para GitHub Pages)
+           ========================================================================= */
+        let peerInstance = null;
+        let peerConnection = null;
+
+        function createPeerRoom() {
+            const btn = document.getElementById('createPeerBtn');
+            btn.textContent = 'Creando sala...';
+            btn.disabled = true;
+
+            const randomCode = 'tamerlan-' + Math.random().toString(36).substring(2, 8);
+            peerInstance = new Peer(randomCode);
+
+            peerInstance.on('open', (id) => {
+                const url = new URL(window.location.href);
+                url.searchParams.set('room', id);
+                document.getElementById('peerRoomLinkInput').value = url.toString();
+                document.getElementById('p2pStatusPill').textContent = 'Esperando amigo...';
+                document.getElementById('p2pStatusPill').className = 'text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded font-semibold';
+                btn.textContent = 'Sala Activa';
+                showToast('Sala en vivo creada. Copia el link y pásalo a tu amigo.');
+            });
+
+            peerInstance.on('connection', (conn) => {
+                peerConnection = conn;
+                setupPeerConnectionEvents();
+            });
+        }
+
+        function joinPeerRoomIfPresent() {
+            const params = new URLSearchParams(window.location.search);
+            const roomId = params.get('room');
+            if (!roomId) return;
+
+            peerInstance = new Peer();
+            peerInstance.on('open', () => {
+                peerConnection = peerInstance.connect(roomId);
+                setupPeerConnectionEvents();
+            });
+        }
+
+        function setupPeerConnectionEvents() {
+            if (!peerConnection) return;
+            peerConnection.on('open', () => {
+                document.getElementById('syncDot').className = 'w-2 h-2 rounded-full bg-[#73b12b] animate-pulse';
+                document.getElementById('syncText').textContent = 'Conectado con Amigo (En Vivo + 14d)';
+                document.getElementById('p2pStatusPill').textContent = 'Conectado';
+                document.getElementById('p2pStatusPill').className = 'text-[10px] bg-[#629924]/30 text-[#73b12b] px-2 py-0.5 rounded font-semibold';
+                showToast('¡Amigo conectado a la partida en tiempo real!');
+                peerConnection.send({ type: 'SYNC_STATE', state: serializeStateCompact() });
+            });
+
+            peerConnection.on('data', (data) => {
+                if (data && data.type === 'SYNC_STATE') {
+                    loadStateFromCompact(data.state);
+                    syncUrlHashWithGameState();
+                    renderBoard();
+                    playChessSound('move');
+                }
+            });
+        }
+
+        function copyPeerRoomLink() {
+            const val = document.getElementById('peerRoomLinkInput').value;
+            if (!val) {
+                createPeerRoom();
+                return;
+            }
+            copyTextToClipboard(val, 'Link de sala en vivo copiado al portapapeles.');
+        }
+
+        /* =========================================================================
+           9. CONTROLES DE LA PARTIDA, MODALES Y POBLACIÓN DE LA GUÍA
+           ========================================================================= */
+        function flipBoard() {
+            boardFlipped = !boardFlipped;
+            renderBoard();
+        }
+
+        function undoLastMove() {
+            if (undoStack.length === 0) {
+                showToast('No hay jugadas previas para deshacer.');
+                return;
+            }
+            const prev = JSON.parse(undoStack.pop());
+            gameState = prev;
+            selectedSquare = null;
+            legalMovesForSelected = [];
+            syncUrlHashWithGameState();
+            renderBoard();
+        }
+
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            const btn = document.getElementById('soundToggleBtn');
+            btn.className = `p-2 rounded bg-[#262421] hover:bg-[#322f2b] ${soundEnabled ? 'text-[#73b12b]' : 'text-[#8c8881]'} hover:text-white flex flex-col items-center justify-center gap-0.5 transition`;
+            showToast(soundEnabled ? 'Sonido activado' : 'Sonido silenciado');
+        }
+
+        function declareDraw() {
+            if (gameState.gameOver) return;
+            undoStack.push(JSON.stringify(gameState));
+            gameState.gameOver = true;
+            gameState.winner = 'draw';
+            gameState.reason = 'Partida finalizada en Tablas por mutuo acuerdo.';
+            syncUrlHashWithGameState();
+            renderBoard();
+        }
+
+        function resignGame() {
+            if (gameState.gameOver) return;
+            undoStack.push(JSON.stringify(gameState));
+            gameState.gameOver = true;
+            const winnerName = gameState.turn === 'w' ? gameState.blackName : gameState.whiteName;
+            gameState.reason = `${gameState.turn === 'w' ? gameState.whiteName : gameState.blackName} se rindió. ¡Gana ${winnerName}!`;
+            syncUrlHashWithGameState();
+            renderBoard();
+        }
+
+        function changeBoardTheme(theme) {
+            if (theme === 'classic-green') {
+                document.documentElement.removeAttribute('data-theme');
+            } else {
+                document.documentElement.setAttribute('data-theme', theme);
+            }
+        }
+
+        function openModal(id) {
+            if (id === 'inviteModal') {
+                syncUrlHashWithGameState();
+            }
+            const m = document.getElementById(id);
+            m.classList.remove('hidden');
+            m.classList.add('flex');
+        }
+
+        function closeModal(id) {
+            const m = document.getElementById(id);
+            m.classList.add('hidden');
+            m.classList.remove('flex');
+        }
+
+        function resetNewGameModal() {
+            openModal('newGameModal');
+        }
+
+        function updateTimeControlLabels() {
+            const days = Number(gameState.daysPerMove);
+            const label = days > 0 ? `Correspondencia • ${days} día${days > 1 ? 's' : ''} / jugada` : 'Casual • Sin límite de tiempo';
+            document.getElementById('gameModeLabel').textContent = label;
+            document.getElementById('timeControlSummary').textContent = days > 0 ? `${days} días` : 'Sin límite';
+            document.getElementById('syncText').textContent = days > 0 ? `Correspondencia (${days}d)` : 'Sin límite';
+        }
+
+        function startConfiguredGame() {
+            const days = Number(document.getElementById('timeControlSelect').value);
+            const wName = document.getElementById('inputWhiteName').value.trim() || 'Blancas';
+            const bName = document.getElementById('inputBlackName').value.trim() || 'Negras';
+            const gRule = document.getElementById('giraffeRuleSelect').value;
+
+            undoStack = [];
+            gameState = {
+                board: createInitialBoard(),
+                turn: 'w',
+                moveHistory: [],
+                capturedByWhite: [],
+                capturedByBlack: [],
+                lastMove: null,
+                daysPerMove: days,
+                lastMoveTimestamp: Date.now(),
+                whiteName: wName,
+                blackName: bName,
+                giraffeRule: gRule,
+                gameOver: false,
+                winner: null,
+                reason: ''
+            };
+
+            selectedSquare = null;
+            legalMovesForSelected = [];
+            updateTimeControlLabels();
+            syncUrlHashWithGameState();
+            renderBoard();
+            closeModal('newGameModal');
+            showToast(`Nueva partida creada (${days > 0 ? days + ' días por jugada' : 'sin límite'}).`);
+        }
+
+        function populatePieceGuide() {
+            const quickContainer = document.getElementById('quickPieceList');
+            const modalContainer = document.getElementById('guideModalContent');
+
+            const order = ['E','C','W','S','V','F','G','D','Q','K','R','B','N','P'];
+            quickContainer.innerHTML = '';
+            modalContainer.innerHTML = '';
+
+            for (const code of order) {
+                const info = PIECE_INFO[code];
+                // Botón rápido en barra izquierda
+                const btn = document.createElement('button');
+                btn.className = 'flex items-center gap-2 p-1.5 rounded bg-[#1e1c1a] hover:bg-[#2c2926] border border-[#322f2b] text-left transition';
+                btn.onclick = () => updateInspector(code, 'w');
+                btn.innerHTML = `
+                    <div class="w-6 h-6 shrink-0">${getPieceSVG(code, 'w')}</div>
+                    <div class="truncate">
+                        <div class="font-semibold text-white text-[11px] truncate">${info.name.split(' (')[0]}</div>
+                        <div class="text-[10px] text-[#8c8881] truncate">${info.tag.split('•')[1] || info.tag}</div>
+                    </div>
+                `;
+                quickContainer.appendChild(btn);
+
+                // Tarjeta detallada en el modal
+                const card = document.createElement('div');
+                card.className = 'flex items-start gap-3 bg-[#1e1c1a] p-3 rounded border border-[#322f2b]';
+                card.innerHTML = `
+                    <div class="flex gap-1 shrink-0 bg-[#262421] p-1.5 rounded border border-[#3a3632]">
+                        <div class="w-9 h-9">${getPieceSVG(code, 'w')}</div>
+                        <div class="w-9 h-9">${getPieceSVG(code, 'b')}</div>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-white text-xs sm:text-sm">${info.name}</h4>
+                        <span class="inline-block text-[10px] text-[#73b12b] font-semibold mb-1">${info.tag}</span>
+                        <p class="text-xs text-[#bababa] leading-relaxed">${info.desc}</p>
+                    </div>
+                `;
+                modalContainer.appendChild(card);
+            }
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toastNotification');
+            toast.textContent = msg;
+            toast.classList.remove('opacity-0', 'translate-y-4');
+            toast.classList.add('opacity-100', 'translate-y-0');
+            clearTimeout(window._toastTimer);
+            window._toastTimer = setTimeout(() => {
+                toast.classList.remove('opacity-100', 'translate-y-0');
+                toast.classList.add('opacity-0', 'translate-y-4');
+            }, 3400);
+        }
+
+        /* =========================================================================
+           10. INICIALIZACIÓN AL CARGAR LA PÁGINA
+           ========================================================================= */
+        window.addEventListener('DOMContentLoaded', () => {
+            populatePieceGuide();
+            updateInspector('G', 'w'); // Mostrar la Jirafa por defecto en el inspector
+
+            // Verificar si el enlace trae una partida de correspondencia en el hash (#g=...)
+            const hash = window.location.hash;
+            if (hash.startsWith('#g=')) {
+                const encoded = hash.slice(3);
+                const ok = loadStateFromCompact(encoded);
+                if (ok) {
+                    showToast('Partida de correspondencia cargada desde el enlace.');
+                } else {
+                    gameState.board = createInitialBoard();
+                }
+            } else {
+                gameState.board = createInitialBoard();
+                syncUrlHashWithGameState();
+            }
+
+            renderBoard();
+            joinPeerRoomIfPresent();
+
+            // Actualizar el reloj de 14 días cada segundo
+            setInterval(updateClocksDisplay, 1000);
+        });
+    </script>
+</body>
+</html>
